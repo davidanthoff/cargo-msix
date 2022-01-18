@@ -7,7 +7,7 @@ use std::{path::PathBuf, env::{current_dir, set_current_dir}};
 use cargo_metadata::camino::Utf8PathBuf;
 use clap::Parser;
 use log::info;
-use anyhow::{anyhow,Result};
+use anyhow::{anyhow,Result, bail};
 use windows::{Win32::{System::Com::{CoInitialize, StructuredStorage::{STGM_CREATE, STGM_WRITE, STGM_SHARE_EXCLUSIVE, STGM_READ}, CreateUri, Uri_CREATE_CANONICALIZE, CoCreateInstance, CLSCTX_INPROC_SERVER, IStream}, UI::Shell::{SHCreateStreamOnFileEx, SHCreateMemStream}, Storage::Packaging::Appx::{APPX_PACKAGE_SETTINGS, IAppxFactory, AppxFactory, IAppxPackageWriter, APPX_COMPRESSION_OPTION_MAXIMUM, IAppxBundleWriter, IAppxBundleFactory, AppxBundleFactory, IAppxBundleWriter4}, Foundation::BOOL}, core::Interface};
 use yaserde::de::from_str;
 
@@ -20,6 +20,8 @@ struct Cli {
     workspace: clap_cargo::Workspace,
     #[clap(flatten)]
     features: clap_cargo::Features,
+    #[clap(long)]
+    release: bool,
 }
 
 fn main() -> Result<()> {
@@ -44,10 +46,9 @@ fn main() -> Result<()> {
 
     let metadata = metadata_cmd.exec().unwrap();
 
+    let profile = if args.release { "release" } else { "debug" };
     
-    
-
-    run_command_default(&metadata)?;
+    run_command_default(&metadata, &profile.to_string())?;
 
     Ok(())
 }
@@ -139,7 +140,7 @@ fn create_manifest(appmanifest_path: &PathBuf, version: &str, processor_architec
     Ok(manifest_stream)
 }
 
-fn run_command_default(metadata: &cargo_metadata::Metadata) -> Result<()> {
+fn run_command_default(metadata: &cargo_metadata::Metadata, profile: &String) -> Result<()> {
     let root_package = metadata.root_package().unwrap();
 
     let output_root_path = metadata.target_directory.join("msix");
@@ -152,8 +153,6 @@ fn run_command_default(metadata: &cargo_metadata::Metadata) -> Result<()> {
         let mut bundle_packagelayout_path = Utf8PathBuf::from(&metadata.workspace_root);
         bundle_packagelayout_path.push(bundle_packagelayout_path_as_string.as_str().unwrap());
         let bundle_packagelayout_path = bundle_packagelayout_path.canonicalize().unwrap();
-
-        eprintln!("NOW THE PATH IS {:?}", bundle_packagelayout_path);
 
         if !bundle_packagelayout_path.exists() {
             return Err(anyhow!("File doesn't exist."));
@@ -190,48 +189,12 @@ fn run_command_default(metadata: &cargo_metadata::Metadata) -> Result<()> {
             let appx_package_writer = create_appx_package_writer(&package_stream).unwrap();
 
             for file in package.files.children {
-                match file.source_path {
-                    Some(source_path) => {
-                        let old_working_dir = current_dir().unwrap();
-                        set_current_dir(bundle_packagelayout_path.parent().unwrap()).unwrap();
+                if file.source_path.is_some() {
+                        let filepath = bundle_packagelayout_path.parent().unwrap().join(file.source_path.unwrap());
 
-                        for file2 in capturing_glob::glob(&source_path).unwrap() {
-                            eprintln!("file2: {:?}", file2);
-                            let file2 = file2.unwrap();
-
-                            eprintln!("file2: {:?}", file2);
-                        }
-
-                        // let filepath = bundle_packagelayout_path.parent().unwrap().join(source_path);
-
-                        // eprintln!("filepath = {:?}", filepath);
-        
-                        // let filestream = unsafe {
-                        //     SHCreateStreamOnFileEx(
-                        //         filepath.to_string_lossy().to_string(),
-                        //         STGM_READ | STGM_SHARE_EXCLUSIVE,
-                        //         0,
-                        //         false,
-                        //         None
-                        //     )
-                        // }.unwrap();
-                                
-                        set_current_dir(old_working_dir).unwrap();
-                        // unsafe {
-                        //     appx_package_writer.AddPayloadFile(file.destination_path, "application/octet-stream", APPX_COMPRESSION_OPTION_MAXIMUM, filestream)
-                        // }.unwrap();
-                    },
-                    None => {
-                        let source_target = file.source_target.unwrap();
-                        let source_platform = file.source_platform.unwrap();
-
-                        let filepath = metadata.target_directory.join(source_platform).join("debug").join(format!("{source_target}.exe"));
-
-                        eprintln!("filepath = {:?}", filepath);
-        
                         let filestream = unsafe {
                             SHCreateStreamOnFileEx(
-                                filepath.to_string(),
+                                filepath.to_string_lossy().to_string(),
                                 STGM_READ | STGM_SHARE_EXCLUSIVE,
                                 0,
                                 false,
@@ -240,16 +203,72 @@ fn run_command_default(metadata: &cargo_metadata::Metadata) -> Result<()> {
                         }.unwrap();
                                 
                         unsafe {
-                            appx_package_writer.AddPayloadFile(file.destination_path, "application/octet-stream", APPX_COMPRESSION_OPTION_MAXIMUM, filestream)
+                            appx_package_writer.AddPayloadFile(file.destination_path.unwrap(), "application/octet-stream", APPX_COMPRESSION_OPTION_MAXIMUM, filestream)
                         }.unwrap();
+                }
+                else if file.source_target.is_some() {
+                    let source_target = file.source_target.unwrap();
+                    let source_platform = file.source_platform.unwrap();
+
+                    let filepath = metadata.target_directory.join(source_platform).join(profile).join(format!("{source_target}.exe"));
+
+                    let filestream = unsafe {
+                        SHCreateStreamOnFileEx(
+                            filepath.to_string(),
+                            STGM_READ | STGM_SHARE_EXCLUSIVE,
+                            0,
+                            false,
+                            None
+                        )
+                    }.unwrap();
+                            
+                    unsafe {
+                        appx_package_writer.AddPayloadFile(file.destination_path.unwrap(), "application/octet-stream", APPX_COMPRESSION_OPTION_MAXIMUM, filestream)
+                    }.unwrap();
+                }
+                else if file.source_root.is_some() {
+                    let old_working_dir = current_dir().unwrap();
+                    let new_working_dir = bundle_packagelayout_path
+                        .parent()
+                        .unwrap()
+                        .join(file.source_root.unwrap());
+                    set_current_dir(&new_working_dir).unwrap();
+
+                    let destination_root = file.destination_root.unwrap();
+
+                    for file2 in glob::glob(&file.source_pattern.unwrap()).unwrap() {
+                        let file2 = file2.unwrap();
+
+                        let source_filename = new_working_dir.join(&file2);
+
+                        if !source_filename.is_dir() {
+                            let filestream = unsafe {
+                                SHCreateStreamOnFileEx(
+                                    source_filename.to_string_lossy().to_string(),
+                                    STGM_READ | STGM_SHARE_EXCLUSIVE,
+                                    0,
+                                    false,
+                                    None
+                                )
+                            }.unwrap();
+
+                            let destination_filename = PathBuf::from(&destination_root).join(&file2);
+
+                            unsafe {
+                                appx_package_writer.AddPayloadFile(destination_filename.to_string_lossy().to_string(), "application/octet-stream", APPX_COMPRESSION_OPTION_MAXIMUM, filestream)
+                            }.unwrap();
+                        } 
                     }
+
+                    set_current_dir(old_working_dir).unwrap();
+                }
+                else {
+                    bail!("Wrong file format.")
                 }
                 
             }
 
             unsafe { appx_package_writer.Close(&manifest_stream) }.unwrap();
-
-            eprintln!("Latest error is at: {}", format!("{}.msix", package.id));
 
             unsafe{ appx_bundle_writer.cast::<IAppxBundleWriter4>().unwrap().AddPayloadPackage(format!("{}.msix", package.id), &package_stream, false) }.unwrap();
         }

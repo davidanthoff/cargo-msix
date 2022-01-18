@@ -37,9 +37,15 @@ pub struct Files {
 #[derive(Default, PartialEq, Debug, YaDeserialize)]
 pub struct File {
     #[yaserde(attribute, rename = "DestinationPath")]
-    pub destination_path: String,
+    pub destination_path: Option<String>,
+    #[yaserde(attribute, rename = "DestinationRoot")]
+    pub destination_root: Option<String>,
     #[yaserde(attribute, rename = "SourcePath")]
     pub source_path: Option<String>,
+    #[yaserde(attribute, rename = "SourceRoot")]
+    pub source_root: Option<String>,
+    #[yaserde(attribute, rename = "SourcePattern")]
+    pub source_pattern: Option<String>,
     #[yaserde(attribute, rename = "SourceTarget")]
     pub source_target: Option<String>,
     #[yaserde(attribute, rename = "SourcePlatform")]
