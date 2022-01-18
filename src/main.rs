@@ -22,6 +22,8 @@ struct Cli {
     features: clap_cargo::Features,
     #[clap(long)]
     release: bool,
+    #[clap(long)]
+    unsigned: bool,
 }
 
 fn main() -> Result<()> {
@@ -48,7 +50,7 @@ fn main() -> Result<()> {
 
     let profile = if args.release { "release" } else { "debug" };
     
-    run_command_default(&metadata, &profile.to_string())?;
+    run_command_default(&args, &metadata, &profile.to_string())?;
 
     Ok(())
 }
@@ -113,7 +115,7 @@ fn create_appx_bundle_writer(filename: &PathBuf) -> Result<IAppxBundleWriter> {
     Ok(writer)
 }
 
-fn create_manifest(appmanifest_path: &PathBuf, version: &str, processor_architecture: &str) -> Result<IStream> {
+fn create_manifest(cli_args: &Cli, appmanifest_path: &PathBuf, version: &str, processor_architecture: &str) -> Result<IStream> {
     let template = mustache::compile_path(&appmanifest_path).unwrap();
     let data = mustache::MapBuilder::new()
         .insert_str("Version", version.to_string() + ".0")
@@ -123,13 +125,13 @@ fn create_manifest(appmanifest_path: &PathBuf, version: &str, processor_architec
 
     let mut parsedcontent: minidom::Element = manifestcontent.parse().unwrap();
 
-    let identity_element = parsedcontent
-        .get_child_mut("Identity", "http://schemas.microsoft.com/appx/manifest/foundation/windows10").unwrap();
-    
-    let old_publisher = identity_element.attr("Publisher").unwrap();
-    let new_publisher = format!("{old_publisher}, OID.2.25.311729368913984317654407730594956997722=1");
-
-    identity_element.set_attr("Publisher", new_publisher);
+    if cli_args.unsigned {
+        let identity_element = parsedcontent
+            .get_child_mut("Identity", "http://schemas.microsoft.com/appx/manifest/foundation/windows10").unwrap();    
+        let old_publisher = identity_element.attr("Publisher").unwrap();
+        let new_publisher = format!("{old_publisher}, OID.2.25.311729368913984317654407730594956997722=1");
+        identity_element.set_attr("Publisher", new_publisher);
+    }
 
     let manifestcontent = String::from(&parsedcontent);
 
@@ -140,7 +142,7 @@ fn create_manifest(appmanifest_path: &PathBuf, version: &str, processor_architec
     Ok(manifest_stream)
 }
 
-fn run_command_default(metadata: &cargo_metadata::Metadata, profile: &String) -> Result<()> {
+fn run_command_default(cli_args: &Cli, metadata: &cargo_metadata::Metadata, profile: &String) -> Result<()> {
     let root_package = metadata.root_package().unwrap();
 
     let output_root_path = metadata.target_directory.join("msix");
@@ -180,7 +182,7 @@ fn run_command_default(metadata: &cargo_metadata::Metadata, profile: &String) ->
         let appx_bundle_writer = create_appx_bundle_writer(&output_path.as_std_path().to_path_buf()).unwrap();
 
         for package in packagelayout_parsed.child.children {
-            let manifest_stream = create_manifest(&manifest_path, &format!("{}.{}.{}", root_package.version.major, root_package.version.minor, root_package.version.patch), &package.processor_architecture).unwrap();
+            let manifest_stream = create_manifest(cli_args, &manifest_path, &format!("{}.{}.{}", root_package.version.major, root_package.version.minor, root_package.version.patch), &package.processor_architecture).unwrap();
 
             let package_stream = unsafe {
                 SHCreateMemStream(std::ptr::null_mut(), 0)
@@ -275,55 +277,6 @@ fn run_command_default(metadata: &cargo_metadata::Metadata, profile: &String) ->
 
         unsafe { appx_bundle_writer.Close() }.unwrap();
     }
-
-    // let package = metadata.root_package().unwrap();
-
-    // eprintln!("We are in {}", metadata.workspace_root);
-    // let msix_root_path = metadata.workspace_root.join("msix");
-    // let msix_appmanifest_path = msix_root_path.join("appxmanifest.xml");
-
-    // let output_root_path = metadata.target_directory.join("msix");
-    // let name = package.name.clone() + ".msix";
-    // let output_path = output_root_path.join(&name);
-
-    // if output_path.exists() {
-    //     std::fs::remove_file(&output_path).unwrap();
-    // }
-
-    // std::fs::create_dir_all(&output_root_path).unwrap();
-
-    // let writer = create_appx_package_writer(&output_path.into_std_path_buf())?;
-
-    // for target in &package.targets {
-    //     if target.kind.contains(&"bin".to_string()) {
-    //         eprintln!("FOUND TARGET {:?}", target);            
-
-    //         let mut filename = Utf8PathBuf::new();
-    //         filename.push(&target.name);
-    //         filename.set_extension("exe");
-
-    //         let filepath = metadata.target_directory.join("debug").join(&filename);
-
-    //         eprintln!("Trying to load file at {:?}", filepath);
-
-    //         let filestream = unsafe {
-    //             SHCreateStreamOnFileEx(
-    //                 filepath.to_string(),
-    //                 STGM_READ | STGM_SHARE_EXCLUSIVE,
-    //                 0,
-    //                 false,
-    //                 None
-    //             )
-    //         }.unwrap();
-        
-    //         unsafe {
-    //             writer.AddPayloadFile(filename.to_string(), "application/octet-stream", APPX_COMPRESSION_OPTION_MAXIMUM, filestream)
-    //         }.unwrap();
-    //     }
-    // }
-
-
-    // unsafe { writer.Close(manifest_stream) }?;
 
     Ok(())
 }
