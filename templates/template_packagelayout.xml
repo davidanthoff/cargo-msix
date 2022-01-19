@@ -1,0 +1,19 @@
+{{=[[ ]]=}}
+<PackagingLayout>
+  <PackageFamily Filename="[[PackageName]]-{{Version}}.msixbundle" FlatBundle="false" ManifestPath="appxmanifest.xml">
+    <Package Filename="[[PackageName]]-x64-{{Version}}.appx" ProcessorArchitecture="x64">
+      <Files>
+[[#BuildOutput]]
+        <BuildOutput DestinationPath="[[Target]].exe" SourceTarget="[[Target]]" SourcePlatform="x86_64-pc-windows-msvc"/>
+[[/BuildOutput]]
+      </Files>
+    </Package>
+    <Package Filename="[[PackageName]]-x86-{{Version}}.appx" ProcessorArchitecture="x86">
+      <Files>
+[[#BuildOutput]]
+        <BuildOutput DestinationPath="[[Target]].exe" SourceTarget="[[Target]]" SourcePlatform="i686-pc-windows-msvc"/>
+[[/BuildOutput]]
+      </Files>
+    </Package>
+  </PackageFamily>
+</PackagingLayout>
