@@ -1,14 +1,14 @@
-use std::{fs::{self, File, OpenOptions}, ops::RangeBounds, collections::HashMap};
+use std::{fs::{self, OpenOptions}};
 
 use anyhow::{Result, bail};
 
 use crate::args;
 
-fn foo(a: toml::Value) -> Option<toml::Value> {
+fn expand_msix_node_from_metadata(a: toml::Value) -> Option<toml::Value> {
     a.get("package")?.get("metadata")?.get("msix").map(|v| v.clone())
 }
 
-pub fn run_command_init(cli_args: &args::Cli, metadata: &cargo_metadata::Metadata) -> Result<()> {
+pub fn run_command_init(_cli_args: &args::Cli, metadata: &cargo_metadata::Metadata) -> Result<()> {
     let root_package = &metadata.root_package().unwrap();
 
     let manifest_path = root_package.manifest_path.clone();
@@ -20,18 +20,17 @@ pub fn run_command_init(cli_args: &args::Cli, metadata: &cargo_metadata::Metadat
     let manifest_content_raw = fs::read_to_string(manifest_path).unwrap();
     let manifest_content: toml::Value = toml::from_str(&manifest_content_raw)?;
 
-    // if foo(manifest_content).is_some() {
-    //     bail!("There is already a MSIX configuration in this project.");
-    // }
+    if expand_msix_node_from_metadata(manifest_content).is_some() {
+        bail!("There is already a MSIX configuration in this project.");
+    }
 
+    if packagelayout_path.exists() {
+        bail!("A package layout file already exists at {}", packagelayout_path);        
+    }
 
-    // if packagelayout_path.exists() {
-    //     bail!("A package layout file already exists at {}", packagelayout_path);        
-    // }
-
-    // if appxmanifest_path.exists() {
-    //     bail!("A appx manifest file already exists at {}", appxmanifest_path);
-    // }
+    if appxmanifest_path.exists() {
+        bail!("A appx manifest file already exists at {}", appxmanifest_path);
+    }
 
     std::fs::create_dir_all(msix_root_path).unwrap();
 
@@ -54,12 +53,16 @@ pub fn run_command_init(cli_args: &args::Cli, metadata: &cargo_metadata::Metadat
 
     let data = mustache::MapBuilder::new()
         .insert_str("PackageName", &root_package.name)
-        .insert_vec("BuildOutput", |builder| {
+        .insert_vec("Targets", |builder| {
             let mut builder = builder;
             for target in &root_package.targets {
                 if target.kind.contains(&"bin".to_string()) {
+                    let mut sanitized_target_name = target.name.clone();
+                    sanitized_target_name.retain(|c| c.is_alphanumeric());
                     builder = builder.push_map(|builder2| {
-                        builder2.insert_str("Target", &target.name)
+                        builder2
+                            .insert_str("Target", &target.name)
+                            .insert_str("TargetSanitized", &sanitized_target_name)
                     });
                 }
             }
@@ -69,8 +72,6 @@ pub fn run_command_init(cli_args: &args::Cli, metadata: &cargo_metadata::Metadat
 
     appxmanifest_template.render_data(&mut appxmanifest_file, &data).unwrap();
     packagelayout_template.render_data(&mut packagelayout_file, &data).unwrap();
-
-
 
     Ok(())
 }

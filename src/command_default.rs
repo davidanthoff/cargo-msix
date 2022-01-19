@@ -22,7 +22,6 @@ use windows::{
 };
 use yaserde::de::from_str;
 use cargo_metadata::camino::Utf8PathBuf;
-use log::info;
 use crate::args;
 use crate::packagelayout;
 
