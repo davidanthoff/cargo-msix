@@ -40,3 +40,6 @@ yaserde_derive = "0.7.1"
 
 [package.metadata.release]
 dev-version = true
+
+[package.metadata.msix]
+foo = "msix/packagelayout.xml"
