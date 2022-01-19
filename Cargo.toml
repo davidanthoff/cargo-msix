@@ -2,6 +2,12 @@
 name = "cargo-msix"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
+description = "A cargo subcommand to build MSIX installers for Rust projects"
+homepage = "https://github.com/davidanthoff/cargo-msix"
+repository = "https://github.com/davidanthoff/cargo-msix"
+categories = ["command-line-utilities", "development-tools::cargo-plugins"]
+keywords = ["cargo-subcommand", "installer", "msix"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
