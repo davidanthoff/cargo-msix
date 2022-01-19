@@ -7,7 +7,7 @@ use std::{
     path::PathBuf,
 };
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use cargo_metadata::camino::Utf8PathBuf;
 use clap::Parser;
 use log::info;
@@ -30,8 +30,24 @@ use windows::{
 };
 use yaserde::de::from_str;
 
-#[derive(Parser)]
-#[clap(name = "cargo-msix", version)]
+#[derive(Debug, Parser)]
+#[clap(name = "cargo")]
+#[clap(bin_name = "cargo")]
+#[clap(
+    setting = clap::AppSettings::DeriveDisplayOrder,
+    setting = clap::AppSettings::DontCollapseArgsInUsage
+)]
+enum Command {
+    #[clap(name = "msix")]
+    #[clap(about, author, version)]
+    #[clap(
+        setting = clap::AppSettings::DeriveDisplayOrder,
+        setting = clap::AppSettings::DontCollapseArgsInUsage
+    )]
+    Msix(Cli),
+}
+
+#[derive(Debug, Clone, clap::Args)]
 struct Cli {
     #[clap(flatten)]
     manifest: clap_cargo::Manifest,
@@ -57,7 +73,7 @@ fn main() -> Result<()> {
     env_logger::init_from_env(env);
 
     info!("Parsing command line arguments.");
-    let args = Cli::parse();
+    let Command::Msix(ref args) = Command::parse();
 
     unsafe { CoInitialize(std::ptr::null_mut()) }.unwrap();
 
@@ -65,7 +81,7 @@ fn main() -> Result<()> {
 
     args.features.forward_metadata(&mut metadata_cmd);
 
-    let metadata = metadata_cmd.exec().unwrap();
+    let metadata = metadata_cmd.exec()?;
 
     let profile = if args.release { "release" } else { "debug" };
 
@@ -139,7 +155,8 @@ fn create_manifest(
         .build();
     let manifestcontent = template.render_data_to_string(&data).unwrap();
 
-    let mut parsedcontent: minidom::Element = manifestcontent.parse().unwrap();
+    let mut parsedcontent: minidom::Element = manifestcontent.parse()
+        .with_context(|| anyhow!("Cannot parse app manifest file {:?}", appmanifest_path))?;
 
     if cli_args.unsigned {
         let identity_element = parsedcontent
@@ -173,14 +190,16 @@ fn run_command_default(
     let output_root_path = metadata.target_directory.join("msix");
     std::fs::create_dir_all(&output_root_path).unwrap();
 
-    for (_bundle_name, bundle_packagelayout_path_as_string) in
-        metadata.root_package().unwrap().metadata["msix"]
-            .as_object()
-            .unwrap()
-    {
+    let root_package_msix_metadata = root_package.metadata["msix"]
+        .as_object()
+        .ok_or_else(|| anyhow!("Cargo.toml is missing the [package.metadata.msix] table"))?;
+
+    for (_bundle_name, bundle_packagelayout_path_as_string) in root_package_msix_metadata {
+        let bundle_packagelayout_path_as_string = bundle_packagelayout_path_as_string.as_str().unwrap();
         let mut bundle_packagelayout_path = Utf8PathBuf::from(&metadata.workspace_root);
-        bundle_packagelayout_path.push(bundle_packagelayout_path_as_string.as_str().unwrap());
-        let bundle_packagelayout_path = bundle_packagelayout_path.canonicalize().unwrap();
+        bundle_packagelayout_path.push(&bundle_packagelayout_path_as_string);
+        let bundle_packagelayout_path = bundle_packagelayout_path.canonicalize()
+            .map_err(|_| anyhow!("Cannot find the package layout file '{}' for the msix entry '{}' in Cargo.toml", bundle_packagelayout_path, _bundle_name))?;
 
         if !bundle_packagelayout_path.exists() {
             return Err(anyhow!("File doesn't exist."));
@@ -192,8 +211,9 @@ fn run_command_default(
             .build();
         let packagelayout_content = packagelayout_template.render_data_to_string(&data).unwrap();
 
-        let packagelayout_parsed: packagelayout::PackagingLayout =
-            from_str(&packagelayout_content).unwrap();
+        let packagelayout_parsed: packagelayout::PackagingLayout = from_str::<packagelayout::PackagingLayout>(&packagelayout_content)
+            .map_err(|err| anyhow!("{}", err))
+            .with_context(|| anyhow!("Cannot parse package layout file {:?}", bundle_packagelayout_path))?;
 
         for package_family in packagelayout_parsed.package_families {
             let output_name = package_family.filename;
@@ -211,7 +231,8 @@ fn run_command_default(
                     .to_string(),
             );
             manifest_path.push(package_family.manifest_path);
-            let manifest_path = manifest_path.canonicalize().unwrap();
+            let manifest_path = manifest_path.canonicalize()
+                .map_err(|_| anyhow!("Cannot find manifest file {} that is specified in the package layout file.", manifest_path))?;
 
             let appx_bundle_writer =
                 create_appx_bundle_writer(&output_path.as_std_path().to_path_buf()).unwrap();
@@ -227,8 +248,7 @@ fn run_command_default(
                         root_package.version.patch
                     ),
                     &package.processor_architecture,
-                )
-                .unwrap();
+                )?;
 
                 let package_stream = if !package_family.flat_bundle {
                     unsafe { SHCreateMemStream(std::ptr::null_mut(), 0) }.unwrap()
@@ -260,9 +280,9 @@ fn run_command_default(
                             0,
                             false,
                             None,
-                        )
-                    }
-                    .unwrap();
+                        )}
+                        .with_context(|| anyhow!("Cannot read the file {:?} that is listed as a <File> in the package layout.", filepath))?;
+
 
                     unsafe {
                         appx_package_writer.AddPayloadFile(
@@ -292,9 +312,8 @@ fn run_command_default(
                             0,
                             false,
                             None,
-                        )
-                    }
-                    .unwrap();
+                        )}
+                        .with_context(|| anyhow!("Cannot read the file {:?} that is listed as a <BuildOutput> in the package layout.", filepath))?;
 
                     unsafe {
                         appx_package_writer.AddPayloadFile(
@@ -313,7 +332,8 @@ fn run_command_default(
                         .parent()
                         .unwrap()
                         .join(filepattern.source_root);
-                    set_current_dir(&new_working_dir).unwrap();
+                    set_current_dir(&new_working_dir)
+                        .with_context(|| anyhow!("Cannot find the path {:?} that is specified as the SourceRoot in a <FilePattern> in the package layout.", new_working_dir))?;
 
                     let destination_root = filepattern.destination_root;
 
@@ -330,10 +350,9 @@ fn run_command_default(
                                     0,
                                     false,
                                     None,
-                                )
-                            }
-                            .unwrap();
-
+                                )}
+                                .with_context(|| anyhow!("Cannot read the file {:?} that is specified from a <FilePattern> in the package layout.", source_filename))?;
+                            
                             let destination_filename =
                                 PathBuf::from(&destination_root).join(&file2);
 
