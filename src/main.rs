@@ -91,15 +91,6 @@ fn main() -> Result<()> {
 }
 
 fn create_appx_package_writer(stream: &IStream) -> Result<IAppxPackageWriter> {
-    // let stream = unsafe {
-    //     SHCreateStreamOnFileEx(
-    //         filename.to_str().unwrap(),
-    //         STGM_CREATE | STGM_WRITE | STGM_SHARE_EXCLUSIVE,
-    //         0, // default file attribute
-    //         true,
-    //         None)
-    // }.unwrap();
-
     let hash_method = unsafe {
         CreateUri(
             "http://www.w3.org/2001/04/xmlenc#sha256",
