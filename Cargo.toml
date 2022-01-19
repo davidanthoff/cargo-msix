@@ -37,3 +37,6 @@ windows = { version = "0.30.0", features = [
 ]}
 yaserde = "0.7.1"
 yaserde_derive = "0.7.1"
+
+[package.metadata.release]
+dev-version = true
