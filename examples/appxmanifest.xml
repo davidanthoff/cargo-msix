@@ -11,10 +11,10 @@
   xmlns:desktop6="http://schemas.microsoft.com/appx/manifest/desktop/windows10/6"
   xmlns:iot2="http://schemas.microsoft.com/appx/manifest/iot/windows10/2" IgnorableNamespaces="mp uap uap3 uap5 rescap desktop desktop4 desktop6 iot2">
 
-  <Identity Name="DavidAnthoff.CargoMsix" Publisher="CN=David Anthoff" Version="{{ Version }}.0" ProcessorArchitecture="{{ ProcessorArchitecture }}"/>
+  <Identity Name="DavidAnthoff.CargoMsixExample" Publisher="CN=David Anthoff" Version="{{ Version }}.0" ProcessorArchitecture="{{ ProcessorArchitecture }}"/>
 
   <Properties>
-    <DisplayName>Cargo-msix</DisplayName>
+    <DisplayName>Cargo MSIX Example</DisplayName>
     <PublisherDisplayName>David Anthoff</PublisherDisplayName>
     <Logo>Images\StoreLogo.png</Logo>
   </Properties>
@@ -29,17 +29,17 @@
   </Resources>
 
   <Applications>    
-    <Application Id="CargoMsix" Executable="cargo-msix.exe" EntryPoint="Windows.FullTrustApplication">
+    <Application Id="CargoMsixExample" Executable="cargo-msix-example.exe" EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
-        DisplayName="CargoMsix"
-        Description="Cargo MSIX support"
+        DisplayName="Cargo MSIX Example"
+        Description="Cargo MSIX Example"
         BackgroundColor="transparent"
         Square150x150Logo="Images\Square150x150Logo.png"
         Square44x44Logo="Images\Square44x44Logo.png"
         AppListEntry="none">
         <uap:DefaultTile
           Wide310x150Logo="Images\Wide310x150Logo.png"
-          ShortName="Cargo-Msix"
+          ShortName="Cargo MSIX Example"
           Square71x71Logo="Images\SmallTile.png"
           Square310x310Logo="Images\LargeTile.png">
           <uap:ShowNameOnTiles>
@@ -51,9 +51,9 @@
         <uap:SplashScreen Image="Images\SplashScreen.png" />
       </uap:VisualElements>
       <Extensions>
-        <uap3:Extension Category="windows.appExecutionAlias" Executable="cargo-msix.exe" EntryPoint="Windows.FullTrustApplication">
+        <uap3:Extension Category="windows.appExecutionAlias" Executable="cargo-msix-example.exe" EntryPoint="Windows.FullTrustApplication">
           <uap3:AppExecutionAlias>
-            <desktop:ExecutionAlias Alias="cargo-msix.exe" />
+            <desktop:ExecutionAlias Alias="cargo-msix-example.exe" />
           </uap3:AppExecutionAlias>
         </uap3:Extension>
       </Extensions>

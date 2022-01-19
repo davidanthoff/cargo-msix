@@ -1,0 +1,14 @@
+<PackagingLayout>
+  <PackageFamily Filename="Cargo-msix-example-{{Version}}.msixbundle" FlatBundle="false" ManifestPath="appxmanifest.xml">
+    <Package Filename="Cargo-msix-example-x64-{{Version}}.appx" ProcessorArchitecture="x64">
+      <Files>
+        <BuildOutput DestinationPath="cargo-msix-example.exe" SourceTarget="examples/cargo-msix-example" SourcePlatform="x86_64-pc-windows-msvc"/>
+      </Files>
+    </Package>
+    <Package Filename="Cargo-msix-example-x86-{{Version}}.appx" ProcessorArchitecture="x86">
+      <Files>
+        <BuildOutput DestinationPath="cargo-msix-example.exe" SourceTarget="examples/cargo-msix-example" SourcePlatform="i686-pc-windows-msvc"/>
+      </Files>
+    </Package>
+  </PackageFamily>
+</PackagingLayout>
