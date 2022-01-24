@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Context, Result, bail};
 use std::{
     env::{current_dir, set_current_dir},
     path::PathBuf,
@@ -85,6 +85,10 @@ fn create_manifest(
         .with_context(|| anyhow!("Cannot parse app manifest file {:?}", appmanifest_path))?;
 
     if cli_args.unsigned {
+        if cli_args.store_name.is_some() || cli_args.store_publisher.is_some() || cli_args.store_publisher_display_name.is_some() {
+            bail!("None of the --store* arguments can be used when --unsigend is specified.");
+        }
+
         let identity_element = parsedcontent
             .get_child_mut(
                 "Identity",
@@ -95,6 +99,30 @@ fn create_manifest(
         let new_publisher =
             format!("{old_publisher}, OID.2.25.311729368913984317654407730594956997722=1");
         identity_element.set_attr("Publisher", new_publisher);
+    }
+
+    if let Some(store_name) = &cli_args.store_name {
+        let identity_element = parsedcontent
+            .get_child_mut(
+                "Identity",
+                "http://schemas.microsoft.com/appx/manifest/foundation/windows10",
+            )
+            .unwrap();
+        identity_element.set_attr("Name", store_name);
+    }
+
+    if let Some(store_publisher) = &cli_args.store_publisher {
+        let identity_element = parsedcontent
+            .get_child_mut(
+                "Identity",
+                "http://schemas.microsoft.com/appx/manifest/foundation/windows10",
+            )
+            .unwrap();
+        identity_element.set_attr("Publisher", store_publisher);
+    }
+
+    if let Some(_store_publisher_display_name) = &cli_args.store_publisher_display_name {
+        panic!("Not yet implemented.");
     }
 
     let manifestcontent = String::from(&parsedcontent);

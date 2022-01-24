@@ -30,6 +30,12 @@ pub struct Cli {
     pub release: bool,
     #[clap(long)]
     pub unsigned: bool,
+    #[clap(long)]
+    pub store_publisher: Option<String>,
+    #[clap(long)]
+    pub store_name: Option<String>,
+    #[clap(long)]
+    pub store_publisher_display_name: Option<String>,
     #[clap(subcommand)]
     pub subcommands: Option<MySubcommands>,
 }
