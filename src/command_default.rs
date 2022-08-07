@@ -4,7 +4,7 @@ use std::{
     path::PathBuf,
 };
 use windows::{
-    core::Interface,
+    core::{Interface,PCWSTR},
     Win32::{
         Foundation::BOOL,
         Storage::Packaging::Appx::{
@@ -14,11 +14,11 @@ use windows::{
         },
         System::Com::{
             CoCreateInstance, CreateUri, IStream,
-            StructuredStorage::{STGM_CREATE, STGM_READ, STGM_SHARE_EXCLUSIVE, STGM_WRITE},
+            StructuredStorage::{STGM_CREATE, STGM_READ, STGM_WRITE, STGM_SHARE_DENY_NONE},
             Uri_CREATE_CANONICALIZE, CLSCTX_INPROC_SERVER, STREAM_SEEK_SET,
         },
         UI::Shell::{SHCreateMemStream, SHCreateStreamOnFileEx},
-    },
+    }, w,
 };
 use yaserde::de::from_str;
 use cargo_metadata::camino::Utf8PathBuf;
@@ -28,7 +28,7 @@ use crate::packagelayout;
 fn create_appx_package_writer(stream: &IStream) -> Result<IAppxPackageWriter> {
     let hash_method = unsafe {
         CreateUri(
-            "http://www.w3.org/2001/04/xmlenc#sha256",
+            w!("http://www.w3.org/2001/04/xmlenc#sha256"),
             Uri_CREATE_CANONICALIZE,
             0,
         )
@@ -48,11 +48,11 @@ fn create_appx_package_writer(stream: &IStream) -> Result<IAppxPackageWriter> {
     Ok(writer)
 }
 
-fn create_appx_bundle_writer(filename: &PathBuf) -> Result<IAppxBundleWriter> {
+fn create_appx_bundle_writer(filename: &PathBuf, version: &cargo_metadata::Version) -> Result<IAppxBundleWriter> {
     let stream = unsafe {
         SHCreateStreamOnFileEx(
-            filename.to_str().unwrap(),
-            STGM_CREATE | STGM_WRITE | STGM_SHARE_EXCLUSIVE,
+            PCWSTR::from(&(filename.to_str().unwrap()).into()),
+            (STGM_CREATE | STGM_WRITE | STGM_SHARE_DENY_NONE).0,
             0, // default file attribute
             true,
             None,
@@ -60,10 +60,13 @@ fn create_appx_bundle_writer(filename: &PathBuf) -> Result<IAppxBundleWriter> {
     }
     .unwrap();
 
+    // This is taken from https://github.com/microsoft/msix-packaging/blob/c8af99506ffd0c1513fad39cdadfac281723c3e3/src/msix/pack/VersionHelpers.cpp
+    let bundleversion = (version.major << 0x30) + (version.minor << 0x20) + (version.patch << 0x10);
+
     let appx_bundle_factory: IAppxBundleFactory =
         unsafe { CoCreateInstance(&AppxBundleFactory, None, CLSCTX_INPROC_SERVER).unwrap() };
 
-    let writer = unsafe { appx_bundle_factory.CreateBundleWriter(stream, 0) }.unwrap();
+    let writer = unsafe { appx_bundle_factory.CreateBundleWriter(&stream, bundleversion) }.unwrap();
 
     Ok(writer)
 }
@@ -190,7 +193,7 @@ pub fn run_command_default(
                 .map_err(|_| anyhow!("Cannot find manifest file {} that is specified in the package layout file.", manifest_path))?;
 
             let appx_bundle_writer =
-                create_appx_bundle_writer(&output_path.as_std_path().to_path_buf()).unwrap();
+                create_appx_bundle_writer(&output_path.as_std_path().to_path_buf(), &root_package.version).unwrap();
 
             for package in package_family.packages {
                 let manifest_stream = create_manifest(
@@ -210,8 +213,8 @@ pub fn run_command_default(
                 } else {
                     unsafe {
                         SHCreateStreamOnFileEx(
-                            output_root_path.join(&package.filename).to_string(),
-                            STGM_CREATE | STGM_READ | STGM_WRITE | STGM_SHARE_EXCLUSIVE,
+                            PCWSTR::from(&(output_root_path.join(&package.filename).to_string()).into()),
+                            (STGM_CREATE | STGM_READ | STGM_WRITE | STGM_SHARE_DENY_NONE).0,
                             0,
                             false,
                             None,
@@ -230,8 +233,8 @@ pub fn run_command_default(
 
                     let filestream = unsafe {
                         SHCreateStreamOnFileEx(
-                            filepath.to_string_lossy().to_string(),
-                            STGM_READ | STGM_SHARE_EXCLUSIVE,
+                            PCWSTR::from(&(filepath.to_string_lossy().to_string()).into()),
+                            (STGM_READ | STGM_SHARE_DENY_NONE).0,
                             0,
                             false,
                             None,
@@ -241,10 +244,10 @@ pub fn run_command_default(
 
                     unsafe {
                         appx_package_writer.AddPayloadFile(
-                            file.destination_path,
-                            "application/octet-stream",
+                            windows::core::PCWSTR::from(&file.destination_path.into()),
+                            w!("application/octet-stream"),
                             APPX_COMPRESSION_OPTION_MAXIMUM,
-                            filestream,
+                            &filestream,
                         )
                     }
                     .unwrap();
@@ -262,8 +265,8 @@ pub fn run_command_default(
 
                     let filestream = unsafe {
                         SHCreateStreamOnFileEx(
-                            filepath.to_string(),
-                            STGM_READ | STGM_SHARE_EXCLUSIVE,
+                            PCWSTR::from(&(filepath.to_string()).into()),
+                            (STGM_READ | STGM_SHARE_DENY_NONE).0,
                             0,
                             false,
                             None,
@@ -272,10 +275,10 @@ pub fn run_command_default(
 
                     unsafe {
                         appx_package_writer.AddPayloadFile(
-                            buildoutput.destination_path,
-                            "application/octet-stream",
+                            PCWSTR::from(&(buildoutput.destination_path).into()),
+                            w!("application/octet-stream"),
                             APPX_COMPRESSION_OPTION_MAXIMUM,
-                            filestream,
+                            &filestream,
                         )
                     }
                     .unwrap();
@@ -300,8 +303,8 @@ pub fn run_command_default(
                         if source_filename.is_file() {
                             let filestream = unsafe {
                                 SHCreateStreamOnFileEx(
-                                    source_filename.to_string_lossy().to_string(),
-                                    STGM_READ | STGM_SHARE_EXCLUSIVE,
+                                    PCWSTR::from(&(source_filename.to_string_lossy().to_string()).into()),
+                                    (STGM_READ | STGM_SHARE_DENY_NONE).0,
                                     0,
                                     false,
                                     None,
@@ -313,10 +316,10 @@ pub fn run_command_default(
 
                             unsafe {
                                 appx_package_writer.AddPayloadFile(
-                                    destination_filename.to_string_lossy().to_string(),
-                                    "application/octet-stream",
+                                    PCWSTR::from(&(destination_filename.to_string_lossy().to_string()).into()),
+                                    w!("application/octet-stream"),
                                     APPX_COMPRESSION_OPTION_MAXIMUM,
-                                    filestream,
+                                    &filestream,
                                 )
                             }
                             .unwrap();
@@ -332,10 +335,11 @@ pub fn run_command_default(
 
                 if package_family.flat_bundle {
                     unsafe { package_stream.Seek(0, STREAM_SEEK_SET) }.unwrap();
+
                     let package_stream = unsafe {
                         SHCreateStreamOnFileEx(
-                            output_root_path.join(&package.filename).to_string(),
-                            STGM_READ | STGM_SHARE_EXCLUSIVE,
+                            PCWSTR::from(&(output_root_path.join(&package.filename).to_string()).into()),
+                            (STGM_READ | STGM_SHARE_DENY_NONE).0,
                             0,
                             false,
                             None,
@@ -347,7 +351,7 @@ pub fn run_command_default(
                         appx_bundle_writer
                             .cast::<IAppxBundleWriter4>()
                             .unwrap()
-                            .AddPackageReference(package.filename, &package_stream, false)
+                            .AddPackageReference(PCWSTR::from(&package.filename.into()), &package_stream, false)
                     }
                     .unwrap();
                 } else {
@@ -355,7 +359,7 @@ pub fn run_command_default(
                         appx_bundle_writer
                             .cast::<IAppxBundleWriter4>()
                             .unwrap()
-                            .AddPayloadPackage(package.filename, &package_stream, false)
+                            .AddPayloadPackage(PCWSTR::from(&package.filename.into()), &package_stream, false)
                     }
                     .unwrap();
                 }
