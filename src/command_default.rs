@@ -369,5 +369,34 @@ pub fn run_command_default(
         }
     }
 
+    if let Some(root_package_appinstaller_metadata) = root_package.metadata["winappinstaller"].as_object() {
+        for (_appinstaller_name, appinstaller_path_as_string) in root_package_appinstaller_metadata {
+            let appinstaller_path_as_string = appinstaller_path_as_string.as_str().unwrap();
+            let mut appinstaller_path = Utf8PathBuf::from(&metadata.workspace_root);
+            appinstaller_path.push(&appinstaller_path_as_string);
+            let appinstaller_path = appinstaller_path.canonicalize()
+                .map_err(|_| anyhow!("Cannot find the appinstaller file '{}' for the winappinstaller entry '{}' in Cargo.toml", appinstaller_path, _appinstaller_name))?;
+
+            if !appinstaller_path.exists() {
+                return Err(anyhow!("File doesn't exist."));
+            }
+
+            let appinstaller_template = mustache::compile_path(&appinstaller_path).unwrap();
+            let data = mustache::MapBuilder::new()
+                .insert_str("Version", root_package.version.to_string())
+                .build();
+            let appinstaller_content = appinstaller_template.render_data_to_string(&data).unwrap();
+
+            let appinstaller_output_root_path = metadata.target_directory.join("winappinstaller");
+
+            std::fs::create_dir_all(&appinstaller_output_root_path).unwrap();
+
+            let output_path = appinstaller_output_root_path.join(appinstaller_path.file_name().unwrap().to_str().unwrap());
+
+            let mut file = std::fs::File::create(output_path)?;
+            std::io::Write::write_all(&mut file, &appinstaller_content.as_bytes())?;
+        }
+    }
+
     Ok(())
 }
