@@ -76,12 +76,29 @@ fn create_manifest(
     appmanifest_path: &PathBuf,
     version: &str,
     processor_architecture: &str,
+    bundle_value: &serde_json::value::Value
 ) -> Result<IStream> {
     let template = mustache::compile_path(&appmanifest_path).unwrap();
-    let data = mustache::MapBuilder::new()
+
+    let mut data = mustache::MapBuilder::new()
         .insert_str("Version", version.to_string())
-        .insert_str("ProcessorArchitecture", processor_architecture)
-        .build();
+        .insert_str("ProcessorArchitecture", processor_architecture);        
+    if let Some(v) = bundle_value.as_object() {
+        if v.contains_key("variables") {
+            if let Some(vars) = v["variables"].as_array() {
+                for v in vars {
+                    let v = v.as_object().unwrap();
+                    if !v.contains_key("name") || !v.contains_key("value") || !v["name"].is_string() || !v["value"].is_string() {
+                        bail!("Entries in variables must have a name and value field.")
+                    }
+
+                    data = data.insert_str(v["name"].as_str().unwrap(), v["value"].as_str().unwrap());
+                }
+            }
+        }
+    }
+    let data = data.build();
+    
     let manifestcontent = template.render_data_to_string(&data).unwrap();
 
     let mut parsedcontent: minidom::Element = manifestcontent.parse()
@@ -146,27 +163,48 @@ pub fn run_command_default(
     let root_package = metadata.root_package().unwrap();
 
     let output_root_path = metadata.target_directory.join("msix");
-    std::fs::create_dir_all(&output_root_path).unwrap();
 
     let root_package_msix_metadata = root_package.metadata["msix"]
         .as_object()
         .ok_or_else(|| anyhow!("Cargo.toml is missing the [package.metadata.msix] table"))?;
 
-    for (_bundle_name, bundle_packagelayout_path_as_string) in root_package_msix_metadata {
-        let bundle_packagelayout_path_as_string = bundle_packagelayout_path_as_string.as_str().unwrap();
+    for (bundle_name, bundle_value) in root_package_msix_metadata {
+        let output_root_path = output_root_path.join(&bundle_name);
+        std::fs::create_dir_all(&output_root_path).unwrap();
+
+        let bundle_packagelayout_path_as_string = match bundle_value.as_str() {
+            None => bundle_value.as_object().unwrap()["file"].as_str().unwrap(),
+            Some(s) => s
+        };
         let mut bundle_packagelayout_path = Utf8PathBuf::from(&metadata.workspace_root);
         bundle_packagelayout_path.push(&bundle_packagelayout_path_as_string);
         let bundle_packagelayout_path = bundle_packagelayout_path.canonicalize()
-            .map_err(|_| anyhow!("Cannot find the package layout file '{}' for the msix entry '{}' in Cargo.toml", bundle_packagelayout_path, _bundle_name))?;
+            .map_err(|_| anyhow!("Cannot find the package layout file '{}' for the msix entry '{}' in Cargo.toml", bundle_packagelayout_path, bundle_name))?;
 
         if !bundle_packagelayout_path.exists() {
             return Err(anyhow!("File doesn't exist."));
         }
 
         let packagelayout_template = mustache::compile_path(&bundle_packagelayout_path).unwrap();
-        let data = mustache::MapBuilder::new()
-            .insert_str("Version", root_package.version.to_string())
-            .build();
+
+        let mut data = mustache::MapBuilder::new()
+            .insert_str("Version", root_package.version.to_string());
+        if let Some(v) = bundle_value.as_object() {
+            if v.contains_key("variables") {
+                if let Some(vars) = v["variables"].as_array() {
+                    for v in vars {
+                        let v = v.as_object().unwrap();
+                        if !v.contains_key("name") || !v.contains_key("value") || !v["name"].is_string() || !v["value"].is_string() {
+                            bail!("Entries in variables must have a name and value field.")
+                        }
+
+                        data = data.insert_str(v["name"].as_str().unwrap(), v["value"].as_str().unwrap());
+                    }
+                }
+            }
+        }
+        let data = data.build();
+
         let packagelayout_content = packagelayout_template.render_data_to_string(&data).unwrap();
 
         let packagelayout_parsed: packagelayout::PackagingLayout = from_str::<packagelayout::PackagingLayout>(&packagelayout_content)
@@ -206,6 +244,7 @@ pub fn run_command_default(
                         root_package.version.patch
                     ),
                     &package.processor_architecture,
+                    bundle_value
                 )?;
 
                 let package_stream = if !package_family.flat_bundle {
@@ -370,12 +409,12 @@ pub fn run_command_default(
     }
 
     if let Some(root_package_appinstaller_metadata) = root_package.metadata["winappinstaller"].as_object() {
-        for (_appinstaller_name, appinstaller_path_as_string) in root_package_appinstaller_metadata {
+        for (appinstaller_name, appinstaller_path_as_string) in root_package_appinstaller_metadata {
             let appinstaller_path_as_string = appinstaller_path_as_string.as_str().unwrap();
             let mut appinstaller_path = Utf8PathBuf::from(&metadata.workspace_root);
             appinstaller_path.push(&appinstaller_path_as_string);
             let appinstaller_path = appinstaller_path.canonicalize()
-                .map_err(|_| anyhow!("Cannot find the appinstaller file '{}' for the winappinstaller entry '{}' in Cargo.toml", appinstaller_path, _appinstaller_name))?;
+                .map_err(|_| anyhow!("Cannot find the appinstaller file '{}' for the winappinstaller entry '{}' in Cargo.toml", appinstaller_path, appinstaller_name))?;
 
             if !appinstaller_path.exists() {
                 return Err(anyhow!("File doesn't exist."));
@@ -387,7 +426,7 @@ pub fn run_command_default(
                 .build();
             let appinstaller_content = appinstaller_template.render_data_to_string(&data).unwrap();
 
-            let appinstaller_output_root_path = metadata.target_directory.join("winappinstaller");
+            let appinstaller_output_root_path = metadata.target_directory.join("msix").join(appinstaller_name);
 
             std::fs::create_dir_all(&appinstaller_output_root_path).unwrap();
 
