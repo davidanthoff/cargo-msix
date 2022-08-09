@@ -36,6 +36,10 @@ pub struct Cli {
     pub store_name: Option<String>,
     #[clap(long)]
     pub store_publisher_display_name: Option<String>,
+    #[clap(long)]
+    pub bundle_name: Option<String>,
+    #[clap(long)]
+    pub source_build_output_path: Option<String>,
     #[clap(subcommand)]
     pub subcommands: Option<MySubcommands>,
 }

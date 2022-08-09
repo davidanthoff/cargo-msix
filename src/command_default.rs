@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Context, Result, bail};
 use std::{
     env::{current_dir, set_current_dir},
-    path::PathBuf,
+    path::PathBuf, str::FromStr,
 };
 use windows::{
     core::{Interface,PCWSTR},
@@ -169,6 +169,12 @@ pub fn run_command_default(
         .ok_or_else(|| anyhow!("Cargo.toml is missing the [package.metadata.msix] table"))?;
 
     for (bundle_name, bundle_value) in root_package_msix_metadata {
+        if let Some(i) = &cli_args.bundle_name {
+            if i!=bundle_name {
+                continue;
+            }
+        }
+
         let output_root_path = output_root_path.join(&bundle_name);
         std::fs::create_dir_all(&output_root_path).unwrap();
 
@@ -296,11 +302,19 @@ pub fn run_command_default(
                     let source_target = buildoutput.source_target;
                     let source_platform = buildoutput.source_platform;
 
-                    let filepath = metadata
-                        .target_directory
-                        .join(source_platform)
-                        .join(profile)
-                        .join(format!("{source_target}.exe"));
+                    let filepath = if let Some(path) = &cli_args.source_build_output_path {
+                        Utf8PathBuf::from_str(&path)
+                            .unwrap()
+                            .join(source_platform)
+                            .join(profile)
+                            .join(format!("{source_target}.exe"))
+                    } else {
+                        metadata
+                            .target_directory
+                            .join(source_platform)
+                            .join(profile)
+                            .join(format!("{source_target}.exe"))
+                    };
 
                     let filestream = unsafe {
                         SHCreateStreamOnFileEx(
