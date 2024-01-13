@@ -17,15 +17,15 @@ cargo_metadata = "0.14.1"
 capturing-glob = "0.1.1"
 clap = { version = "3.0.5", features = ["derive"] }
 clap-cargo = { version = "0.8.0", features = ["cargo_metadata"] }
-env_logger = "0.9.0"
+env_logger = "0.10.1"
 glob = "0.3.0"
 human-panic = "1.0.3"
 log = "0.4.14"
 xmltree = "0.10.3"
-minidom = "0.13.0"
+minidom = "0.15.2"
 mustache = "0.9"
-toml = "0.5.8"
-windows = { version = "0.39.0", features = [
+toml = "0.8.8"
+windows = { version = "0.52.0", features = [
     "Win32_Foundation",
     "Win32_Security",
     "Win32_System_Threading",
@@ -35,8 +35,8 @@ windows = { version = "0.39.0", features = [
     "Win32_UI_Shell",
     "Win32_System_Com_StructuredStorage",
 ]}
-yaserde = "0.7.1"
-yaserde_derive = "0.7.1"
+yaserde = "0.9.1"
+yaserde_derive = "0.9.1"
 serde_json = "1"
 
 [package.metadata.release]

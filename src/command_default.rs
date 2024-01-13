@@ -1,10 +1,10 @@
 use anyhow::{anyhow, Context, Result, bail};
 use std::{
     env::{current_dir, set_current_dir},
-    path::PathBuf, str::FromStr,
+    path::PathBuf, str::FromStr, mem::ManuallyDrop,
 };
 use windows::{
-    core::{Interface,PCWSTR},
+    core::{w, HSTRING, ComInterface},
     Win32::{
         Foundation::BOOL,
         Storage::Packaging::Appx::{
@@ -14,11 +14,11 @@ use windows::{
         },
         System::Com::{
             CoCreateInstance, CreateUri, IStream,
-            StructuredStorage::{STGM_CREATE, STGM_READ, STGM_WRITE, STGM_SHARE_DENY_NONE},
+            STGM_CREATE, STGM_READ, STGM_WRITE, STGM_SHARE_DENY_NONE,
             Uri_CREATE_CANONICALIZE, CLSCTX_INPROC_SERVER, STREAM_SEEK_SET,
         },
         UI::Shell::{SHCreateMemStream, SHCreateStreamOnFileEx},
-    }, w,
+    },
 };
 use yaserde::de::from_str;
 use cargo_metadata::camino::Utf8PathBuf;
@@ -35,9 +35,12 @@ fn create_appx_package_writer(stream: &IStream) -> Result<IAppxPackageWriter> {
     }
     .unwrap();
 
+    // TODO Understand what this ManuallyDrop thing does here...
+    let has_method = ManuallyDrop::new(Some(hash_method));
+
     let writer_settings = APPX_PACKAGE_SETTINGS {
         forceZip32: BOOL::from(false),
-        hashMethod: Some(hash_method),
+        hashMethod: has_method,
     };
 
     let appx_factory: IAppxFactory =
@@ -48,10 +51,10 @@ fn create_appx_package_writer(stream: &IStream) -> Result<IAppxPackageWriter> {
     Ok(writer)
 }
 
-fn create_appx_bundle_writer(filename: &PathBuf, version: &cargo_metadata::Version) -> Result<IAppxBundleWriter> {
+fn  create_appx_bundle_writer(filename: &PathBuf, version: &cargo_metadata::Version) -> Result<IAppxBundleWriter> {
     let stream = unsafe {
         SHCreateStreamOnFileEx(
-            PCWSTR::from(&(filename.to_str().unwrap()).into()),
+            &HSTRING::from(filename.as_os_str()),
             (STGM_CREATE | STGM_WRITE | STGM_SHARE_DENY_NONE).0,
             0, // default file attribute
             true,
@@ -148,7 +151,7 @@ fn create_manifest(
     let manifestcontent = String::from(&parsedcontent);
 
     let manifest_stream =
-        unsafe { SHCreateMemStream(manifestcontent.as_ptr(), manifestcontent.len() as u32) }
+        unsafe { SHCreateMemStream(Some(&manifestcontent.as_bytes())) }
             .unwrap();
 
     Ok(manifest_stream)
@@ -254,11 +257,11 @@ pub fn run_command_default(
                 )?;
 
                 let package_stream = if !package_family.flat_bundle {
-                    unsafe { SHCreateMemStream(std::ptr::null_mut(), 0) }.unwrap()
+                    unsafe { SHCreateMemStream(None) }.unwrap()
                 } else {
                     unsafe {
                         SHCreateStreamOnFileEx(
-                            PCWSTR::from(&(output_root_path.join(&package.filename).to_string()).into()),
+                            &HSTRING::from(output_root_path.join(&package.filename).as_os_str()),
                             (STGM_CREATE | STGM_READ | STGM_WRITE | STGM_SHARE_DENY_NONE).0,
                             0,
                             false,
@@ -278,7 +281,7 @@ pub fn run_command_default(
 
                     let filestream = unsafe {
                         SHCreateStreamOnFileEx(
-                            PCWSTR::from(&(filepath.to_string_lossy().to_string()).into()),
+                            &HSTRING::from(filepath.as_os_str()),
                             (STGM_READ | STGM_SHARE_DENY_NONE).0,
                             0,
                             false,
@@ -289,7 +292,7 @@ pub fn run_command_default(
 
                     unsafe {
                         appx_package_writer.AddPayloadFile(
-                            windows::core::PCWSTR::from(&file.destination_path.into()),
+                            &HSTRING::from(file.destination_path),
                             w!("application/octet-stream"),
                             APPX_COMPRESSION_OPTION_MAXIMUM,
                             &filestream,
@@ -318,7 +321,7 @@ pub fn run_command_default(
 
                     let filestream = unsafe {
                         SHCreateStreamOnFileEx(
-                            PCWSTR::from(&(filepath.to_string()).into()),
+                            &HSTRING::from(filepath.as_os_str()),
                             (STGM_READ | STGM_SHARE_DENY_NONE).0,
                             0,
                             false,
@@ -328,7 +331,7 @@ pub fn run_command_default(
 
                     unsafe {
                         appx_package_writer.AddPayloadFile(
-                            PCWSTR::from(&(buildoutput.destination_path).into()),
+                            &HSTRING::from(buildoutput.destination_path),
                             w!("application/octet-stream"),
                             APPX_COMPRESSION_OPTION_MAXIMUM,
                             &filestream,
@@ -356,7 +359,7 @@ pub fn run_command_default(
                         if source_filename.is_file() {
                             let filestream = unsafe {
                                 SHCreateStreamOnFileEx(
-                                    PCWSTR::from(&(source_filename.to_string_lossy().to_string()).into()),
+                                    &HSTRING::from(source_filename.as_os_str()),
                                     (STGM_READ | STGM_SHARE_DENY_NONE).0,
                                     0,
                                     false,
@@ -369,7 +372,7 @@ pub fn run_command_default(
 
                             unsafe {
                                 appx_package_writer.AddPayloadFile(
-                                    PCWSTR::from(&(destination_filename.to_string_lossy().to_string()).into()),
+                                    &HSTRING::from(destination_filename.as_os_str()),
                                     w!("application/octet-stream"),
                                     APPX_COMPRESSION_OPTION_MAXIMUM,
                                     &filestream,
@@ -387,11 +390,11 @@ pub fn run_command_default(
                 unsafe { appx_package_writer.Close(&manifest_stream) }.unwrap();
 
                 if package_family.flat_bundle {
-                    unsafe { package_stream.Seek(0, STREAM_SEEK_SET) }.unwrap();
+                    unsafe { package_stream.Seek(0, STREAM_SEEK_SET, None) }.unwrap();
 
                     let package_stream = unsafe {
                         SHCreateStreamOnFileEx(
-                            PCWSTR::from(&(output_root_path.join(&package.filename).to_string()).into()),
+                            &HSTRING::from(output_root_path.join(&package.filename).as_os_str()),
                             (STGM_READ | STGM_SHARE_DENY_NONE).0,
                             0,
                             false,
@@ -404,7 +407,7 @@ pub fn run_command_default(
                         appx_bundle_writer
                             .cast::<IAppxBundleWriter4>()
                             .unwrap()
-                            .AddPackageReference(PCWSTR::from(&package.filename.into()), &package_stream, false)
+                            .AddPackageReference(&HSTRING::from(package.filename), &package_stream, false)
                     }
                     .unwrap();
                 } else {
@@ -412,7 +415,7 @@ pub fn run_command_default(
                         appx_bundle_writer
                             .cast::<IAppxBundleWriter4>()
                             .unwrap()
-                            .AddPayloadPackage(PCWSTR::from(&package.filename.into()), &package_stream, false)
+                            .AddPayloadPackage(&HSTRING::from(package.filename), &package_stream, false)
                     }
                     .unwrap();
                 }

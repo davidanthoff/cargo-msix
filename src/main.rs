@@ -28,7 +28,7 @@ fn main() -> Result<()> {
     let args::Command::Msix(ref args) = args::Command::parse();
 
     info!("Initializig COM");
-    unsafe { CoInitialize(std::ptr::null_mut()) }.unwrap();
+    unsafe { CoInitialize(None) }.unwrap();
 
     info!("Reading Cargo.toml");
     let mut metadata_cmd = args.manifest.metadata();
