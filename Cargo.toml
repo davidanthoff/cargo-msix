@@ -39,8 +39,5 @@ yaserde = "0.9.1"
 yaserde_derive = "0.9.1"
 serde_json = "1"
 
-[package.metadata.release]
-dev-version = true
-
 [package.metadata.msix]
 example = "examples/packagelayout.xml"
